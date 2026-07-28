@@ -1,7 +1,8 @@
 # shstatus
+![default output (excluding battery)](default.png)
+
 minimal and extensible shell statusline indended for use with `dwl`, `dwm` (or anything that needs status via `stdout`)
 
-![default output (excluding battery)](example.png)
 
 designed to be an example starting point for more personalised configurations
 
