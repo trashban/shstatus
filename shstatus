@@ -1,63 +1,101 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
 
-# shstatus
 # github.com/trashban/shstatus
 
+if [ $# -eq 0 ]; then
+    echo "usage: shstatus [interval]"
+    exit 1
+fi
+
+# obviously don't create a module with anythingthese names
+__bar=""    # actual bar string that is displayed updated in update_bar
+
+# bar format
+## specify modules defined within `modules`
+## printed in order (left -> right)
+__bar_order=(ipaddr cpu ram vol bat clock)
+
 # modules
-## if you want, define more modules here and call them in `print_bar`
-## modules are printed in order from left to right
+## each module uses the following compound keys:
+## val - current value of module (your module's function would update it)
+## interval - update interval time (seconds)
+declare -A modules
+modules[ipaddr,interval]=60
+modules[cpu,interval]=10
+modules[ram,interval]=10
+modules[vol,interval]=1
+modules[bat,interval]=30
+modules[clock,interval]=1
 
-modules=(ram cpu ip vol ram clock)
+# important: make sure your module name doesn't conflict with existing commands in bash shell!
 
-ram() {
-    free -h | awk '/^Mem:/ {print $3}'
+ipaddr() {
+    local res=$(ip -4 addr show up | awk '/inet / && $2 !~ /^127/ {print $2; exit}')
+    modules[ipaddr,val]="ip $res"
 }
 
 cpu() {
-    sensors 2>/dev/null | awk '/Package id 0:|Tctl:|temp1:/ {gsub(/\+/, "", $2); print $2; exit}'
-}
-
-ip() {
-    ip -4 addr show up | awk '/inet / && $2 !~ /^127/ {print $2; exit}'
-}
-
-vol() {
-    wpctl get-volume @DEFAULT_AUDIO_SINK@ | awk '{print $2 * 100}'
+    # sensors provided from `lm-sensors`
+    # you might need to adjust `awk` to retrieve the right info
+    local res=$(sensors 2>/dev/null | awk '/Package id 0:|Tctl:|temp1:/ {gsub(/\+/, "", $2); print $2; exit}')
+    modules[cpu,val]="cpu $res"
 }
 
 ram() {
-    < /sys/class/power_supply/BAT0/capacity
+    local res=$(free -h | awk '/^Mem:/ {print $3}')
+    modules[ram,val]="ram $res"
+}
+
+vol() {
+    # pipewire
+    local res=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ | awk '{print $2 * 100}')
+    modules[vol,val]="vol $res"
+}
+
+bat() {
+    # change the location of battery according to your device
+    local res=$(< /sys/class/power_supply/BAT0/capacity)
+    modules[bat,val]="bat: $res%"
 }
 
 clock() {
-    date '+%a %d %H:%M:%S'
+    modules[clock,val]=$(date '+%a %d %H:%M:%S')
 }
 
-# by default, the seperator prints between each module automatically
-print_seperator() {
+# by default, the separator prints between each module excluding the first and last modules automatically
+# to change this, edit/remove `prevent` in print_bar()
+separator() {
     echo " : "
 }
 
 # creates and returns status-line as a string composed from modules
-print_bar() {
-    res=""
-    prevent=1
-    for fn in foo bar baz; do
-        if "$fn"; then
-            res+=("$fn")
+update_bar() {
+    __bar=""
+    local module
+    local i
+
+    for i in "${!__bar_order[@]}"; do
+        module=${__bar_order[$i]}
+
+        if (( SECONDS >= modules[$module,next] )); then
+            "$module"
+            modules[$module,next]=$((SECONDS + modules[$module,interval]))
+        fi
+
+        __bar+="${modules[$module,val]}"
+
+        # if you want to change the seperator logic, adjust this
+        # this currently prints the seperator after the first and before the last module
+        if (( i < ${#__bar_order[@]} - 1 )); then
+            __bar+="$(separator)"
         fi
     done
 }
 
-while true; do
-    printf "\rip %s : cpu %s : ram %s : vol %s : bat %s : %s" \
-        "$ip" "$cpu_temp" "$ram" "$vol" "$battery" "$(date '+%a %d %H:%M:%S')"
-
-    sleep 1
-done
-
-# you probably don't need to touch this
-while true; do
-    print_bar
+# probably don't want to touch this
+while true;
+do
+    update_bar
+    printf '%s\n' "$__bar"
     sleep $1
 done
