@@ -1,0 +1,63 @@
+#!/usr/bin/env sh
+
+# shstatus
+# github.com/trashban/shstatus
+
+# modules
+## if you want, define more modules here and call them in `print_bar`
+## modules are printed in order from left to right
+
+modules=(ram cpu ip vol ram clock)
+
+ram() {
+    free -h | awk '/^Mem:/ {print $3}'
+}
+
+cpu() {
+    sensors 2>/dev/null | awk '/Package id 0:|Tctl:|temp1:/ {gsub(/\+/, "", $2); print $2; exit}'
+}
+
+ip() {
+    ip -4 addr show up | awk '/inet / && $2 !~ /^127/ {print $2; exit}'
+}
+
+vol() {
+    wpctl get-volume @DEFAULT_AUDIO_SINK@ | awk '{print $2 * 100}'
+}
+
+ram() {
+    < /sys/class/power_supply/BAT0/capacity
+}
+
+clock() {
+    date '+%a %d %H:%M:%S'
+}
+
+# by default, the seperator prints between each module automatically
+print_seperator() {
+    echo " : "
+}
+
+# creates and returns status-line as a string composed from modules
+print_bar() {
+    res=""
+    prevent=1
+    for fn in foo bar baz; do
+        if "$fn"; then
+            res+=("$fn")
+        fi
+    done
+}
+
+while true; do
+    printf "\rip %s : cpu %s : ram %s : vol %s : bat %s : %s" \
+        "$ip" "$cpu_temp" "$ram" "$vol" "$battery" "$(date '+%a %d %H:%M:%S')"
+
+    sleep 1
+done
+
+# you probably don't need to touch this
+while true; do
+    print_bar
+    sleep $1
+done
