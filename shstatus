@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
-
 # github.com/trashban/shstatus
 
-if [ $# -eq 0 ]; then
-    echo "usage: shstatus [interval]"
-    exit 1
-fi
+# usage: shstatus [interval (seconds)]
 
-# obviously don't create a module with anythingthese names
-__bar=""    # actual bar string that is displayed updated in update_bar
+__pid=$$        # pid of bar
+__bar=""        # bar string displayed/updated
+__interval=$1   # base update interval
+
+if [ $# -eq 0 ]; then
+    printf '%s\n' "note: interval not specified - defaulting to 1"
+    __interval=1
+fi
 
 # bar format
 ## specify modules defined within `modules`
@@ -46,14 +48,33 @@ ram() {
     modules[ram,val]="ram $res"
 }
 
+
 vol() {
-    # pipewire
-    local res=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ | awk '{print $2 * 100}')
+    # assumes pipewire
+    local output=$(wpctl get-volume @DEFAULT_AUDIO_SINK@)
+    local res=$(echo "$output" | awk {'print $2 * 100 "%"'})
+    if [[ "$output" == *"MUTED"* ]]; then
+        res="$res [muted]"
+    fi
     modules[vol,val]="vol $res"
 }
 
+# example for async updating volume on change (`pipewire-pulse` required for `pactl`)
+## on event, this bar ($__pid) is killed with `USR1` which the trap watches and updates
+(
+    pactl subscribe |
+    while read -r event; do
+        case "$event" in
+            *"sink"*|*"server"*)
+                kill -USR1 "$__pid"
+                ;;
+        esac
+    done
+) &
+trap 'modules[vol,next]=0' SIGUSR1
+
 bat() {
-    # change the location of battery according to your device
+    # change the location of battery according to your device or use `upower`
     local res=$(< /sys/class/power_supply/BAT0/capacity)
     modules[bat,val]="bat: $res%"
 }
@@ -92,10 +113,10 @@ update_bar() {
     done
 }
 
-# probably don't want to touch this
-while true;
-do
+# you probably don't want to touch this
+while true; do
     update_bar
     printf '%s\n' "$__bar"
-    sleep $1
+    sleep "$__interval" &
+    wait $!
 done
